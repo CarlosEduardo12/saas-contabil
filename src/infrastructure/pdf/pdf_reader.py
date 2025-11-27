@@ -1,5 +1,4 @@
 from pathlib import Path
-from PIL import Image
 from typing import Any, Dict, Optional
 import PyPDF2
 import cv2
@@ -9,6 +8,7 @@ import pytesseract
 from domain.exceptions import DocumentReadError
 from domain.models import Document, Page
 from domain.ports.document_reader import DocumentReader
+from PIL import Image
 
 
 class PDFReader(DocumentReader):

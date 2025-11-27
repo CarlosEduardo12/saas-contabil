@@ -23,8 +23,8 @@ def main():
         csv_writer = CSVWriter()
         converter = DocumentConverterService(pdf_reader, csv_writer)
 
-        input_path = Path("Ponto1.pdf")
-        output_path = Path("output.csv")
+        input_path = Path("Ponto2.pdf")
+        output_path = Path("output2.csv")
 
         converter.convert(input_path, output_path)
         print(f"Conversão concluída com sucesso: {input_path} -> {output_path}")
