@@ -5,13 +5,12 @@ import cv2
 import numpy as np
 from pdf2image import convert_from_path
 import pytesseract
-from domain.exceptions import DocumentReadError
-from domain.models import Document, Page
-from domain.ports.document_reader import DocumentReader
 from PIL import Image
 
+from models import Document, Page, DocumentReadError
 
-class PDFReader(DocumentReader):
+
+class PDFReader:
     """Implementação de leitor de documentos PDF com suporte a OCR e pré-processamento de imagem."""
 
     def __init__(

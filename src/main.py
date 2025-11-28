@@ -1,8 +1,8 @@
 from pathlib import Path
-from application.services.document_converter import DocumentConverterService
-from domain.exceptions import DocumentProcessingError
-from infrastructure.csv.csv_writer import CSVWriter
-from infrastructure.pdf.pdf_reader import PDFReader
+from services.document_converter import DocumentConverterService
+from models import DocumentProcessingError
+from services.csv_writer import CSVWriter
+from services.pdf_reader import PDFReader
 
 
 def main():
@@ -23,8 +23,13 @@ def main():
         csv_writer = CSVWriter()
         converter = DocumentConverterService(pdf_reader, csv_writer)
 
-        input_path = Path("Ponto2.pdf")
-        output_path = Path("output2.csv")
+        input_path = Path("Ponto4.pdf")
+        document = pdf_reader.read(input_path)
+
+        for page in document.pages:
+            print(f"\n--- Página {page.page_number} ---\n")
+            print(page.content)
+        output_path = Path("output4.csv")
 
         converter.convert(input_path, output_path)
         print(f"Conversão concluída com sucesso: {input_path} -> {output_path}")

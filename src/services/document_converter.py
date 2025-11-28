@@ -1,6 +1,19 @@
 from pathlib import Path
-from domain.ports.document_reader import DocumentReader
-from domain.ports.document_writer import DocumentWriter
+from typing import Protocol
+
+from models import Document
+
+
+# Definindo protocolos implícitos para tipagem, se desejado, ou apenas usando duck typing.
+# Para manter simples e parecido com o original, mas sem ports explícitos em arquivos separados.
+
+class DocumentReader(Protocol):
+    def read(self, file_path: Path) -> Document:
+        ...
+
+class DocumentWriter(Protocol):
+    def write(self, document: Document, output_path: Path) -> None:
+        ...
 
 
 class DocumentConverterService:
