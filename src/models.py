@@ -21,7 +21,6 @@ class DocumentWriteError(DocumentProcessingError):
 class Page:
     """Representa uma página de documento com seu conteúdo e metadados."""
     content: str
-    is_image: bool
     page_number: int
 
 
