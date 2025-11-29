@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from models import Document, DocumentWriteError
+from src.domain.entities import Document, DocumentWriteError
 
 
 class CSVWriter:

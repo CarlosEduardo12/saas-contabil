@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from models import Document
+from src.domain.entities import Document
 
 
 # Definindo protocolos implícitos para tipagem, se desejado, ou apenas usando duck typing.

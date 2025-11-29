@@ -1,7 +1,7 @@
 from pathlib import Path
 import PyPDF2
 
-from models import Document, Page, DocumentReadError
+from src.domain.entities import Document, Page, DocumentReadError
 
 
 class PDFReader:
@@ -14,7 +14,7 @@ class PDFReader:
         """Lê um documento PDF e extrai seu conteúdo."""
         try:
             pages = []
-            
+
             # Abrir PDF para leitura normal de texto
             with open(file_path, "rb") as file:
                 pdf_reader = PyPDF2.PdfReader(file)
