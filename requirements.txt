@@ -5,3 +5,5 @@ celery
 redis
 PyPDF2
 httpx
+python-jose[cryptography]
+passlib[bcrypt]

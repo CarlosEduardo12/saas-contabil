@@ -10,3 +10,7 @@ class ConversionResult(BaseModel):
     status: str
     result: Optional[dict] = None
     error: Optional[str] = None
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
