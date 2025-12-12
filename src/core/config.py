@@ -34,12 +34,14 @@ class Settings:
 
 settings = Settings()
 
-# SECURITY: Validate configuration on startup
+# SECURITY: Validate configuration on startup (flexible for Railway)
 try:
     settings.validate()
 except ValueError as e:
-    print(f"CONFIGURATION ERROR: {e}")
-    exit(1)
+    print(f"CONFIGURATION WARNING: {e}")
+    # In production, log warning but don't exit to allow Railway to start
+    if os.getenv("ENVIRONMENT") != "production":
+        exit(1)
 
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)

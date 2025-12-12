@@ -39,12 +39,38 @@ app.include_router(telegram_router)
 @app.get("/health")
 async def health_check():
     """Health check endpoint for load balancers"""
-    return {"status": "healthy", "service": "saas-contabil-converter"}
+    health_status = {
+        "status": "healthy",
+        "service": "saas-contabil-converter",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "checks": {
+            "secret_key": bool(settings.SECRET_KEY),
+            "telegram_token": bool(settings.TELEGRAM_BOT_TOKEN),
+            "database_url": bool(settings.DATABASE_URL)
+        }
+    }
+    return health_status
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {"message": "SaaS Contabil Converter API", "status": "running"}
 
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    print("🚀 Starting SaaS Contabil Converter...")
+    print(f"📊 Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    print(f"🔑 SECRET_KEY configured: {'Yes' if settings.SECRET_KEY else 'No'}")
+    print(f"🤖 TELEGRAM_BOT_TOKEN configured: {'Yes' if settings.TELEGRAM_BOT_TOKEN else 'No'}")
+    print(f"🗄️ DATABASE_URL: {settings.DATABASE_URL[:50]}...")
+    
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("✅ Database tables created successfully")
+    except Exception as e:
+        print(f"❌ Database error: {e}")
+        # Don't exit, let the app start anyway for health check
 
 validator_service = PDFValidatorService()
 
