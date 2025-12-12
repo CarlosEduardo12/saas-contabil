@@ -24,22 +24,38 @@ class PDFValidatorService:
 
     def validate(self, file_path: Path) -> bool:
         """
-        Valida se o arquivo está cadastrado.
+        Valida se o arquivo está cadastrado e é seguro.
         Retorna True se válido, False caso contrário.
         """
-        # Lógica simplificada: 
-        # Vamos assumir que se o arquivo existe e é um PDF, é válido por enquanto,
-        # a menos que queiramos restringir estritamente.
-        # O requisito diz: "Valida se o PDF está cadastrado na base para conversão."
-        
-        # Vamos simular um cadastro. 
-        # Se o hash do arquivo estiver na lista (ou se a lista estiver vazia, permitimos tudo para facilitar teste?)
-        # O usuário pediu explicitamente: "Se não estiver cadastrado, responde que o PDF não está na base."
-        
-        # Então vamos adicionar um hash "conhecido" ou permitir que se adicione dinamicamente?
-        # Como não tenho banco de dados, vou usar um arquivo em memória ou permitir qualquer um que comece com "Ponto".
-        
-        if file_path.name.startswith("Ponto"):
-             return True
-             
-        return False
+        try:
+            # SECURITY: Check if file exists and is readable
+            if not file_path.exists() or not file_path.is_file():
+                return False
+            
+            # SECURITY: Check file size
+            if file_path.stat().st_size > 10 * 1024 * 1024:  # 10MB limit
+                return False
+            
+            # SECURITY: Basic PDF validation - check magic bytes
+            with open(file_path, 'rb') as f:
+                header = f.read(4)
+                if header != b'%PDF':
+                    return False
+            
+            # SECURITY: Calculate hash for validation
+            file_hash = self.calculate_hash(file_path)
+            
+            # BUSINESS LOGIC: Check if file is registered
+            # For now, allow files that start with "Ponto" or have specific hashes
+            if file_path.name.startswith("Ponto"):
+                return True
+            
+            # TODO: Implement proper database lookup for registered hashes
+            # return file_hash in self.get_allowed_hashes_from_db()
+            
+            return False
+            
+        except Exception as e:
+            # SECURITY: Log validation errors but don't expose details
+            print(f"Validation error: {e}")
+            return False

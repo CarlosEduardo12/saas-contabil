@@ -6,6 +6,17 @@ services:
     ports:
       - "6379:6379"
 
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=saas_contabil
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   celery_worker:
     build:
       context: .
@@ -13,8 +24,13 @@ services:
     command: celery -A src.core.celery_app.celery_app worker --loglevel=info
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/saas_contabil
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=saas_contabil
     depends_on:
       - redis
+      - postgres
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
@@ -30,5 +46,10 @@ services:
     depends_on:
       - redis
       - celery_worker
+      - postgres
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/saas_contabil
+
+volumes:
+  postgres_data:

@@ -7,5 +7,6 @@
     "editor.suggestOnTriggerCharacters": true,
     "python.analysis.extraPaths": [
         "./src/domain"
-    ]
+    ],
+    "kiroAgent.configureMCP": "Disabled"
 }

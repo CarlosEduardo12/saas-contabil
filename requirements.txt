@@ -7,3 +7,6 @@ PyPDF2
 httpx
 python-jose[cryptography]
 passlib[bcrypt]
+sqlalchemy
+asyncpg
+psycopg2-binary

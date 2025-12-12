@@ -1,6 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import shutil
 from pathlib import Path
 import os
@@ -14,15 +16,57 @@ from src.worker.tasks import convert_document_task
 from src.api.schemas import TaskResponse, ConversionResult, Token
 from src.core.security import create_access_token, get_current_user
 from src.core.logging_config import logger
+from src.api.telegram import router as telegram_router
+from src.core.database import engine, Base
 
-app = FastAPI(title=settings.PROJECT_NAME)
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    docs_url="/docs" if os.getenv("ENVIRONMENT") == "development" else None,  # SECURITY: Hide docs in production
+    redoc_url="/redoc" if os.getenv("ENVIRONMENT") == "development" else None
+)
+
+# SECURITY: Configure CORS properly (mais permissivo para desenvolvimento)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permissivo para desenvolvimento
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(telegram_router)
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for load balancers"""
+    return {"status": "healthy", "service": "saas-contabil-converter"}
+
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 validator_service = PDFValidatorService()
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    # In a real app, verify against DB. Here we use a dummy check.
-    if form_data.username != "admin" or form_data.password != "secret":
+    # SECURITY: Use environment variables for credentials
+    admin_username = os.getenv("ADMIN_USERNAME")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    
+    if not admin_username or not admin_password:
+        logger.error("Admin credentials not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server configuration error"
+        )
+    
+    # SECURITY: Use constant-time comparison to prevent timing attacks
+    from secrets import compare_digest
+    username_valid = compare_digest(form_data.username, admin_username)
+    password_valid = compare_digest(form_data.password, admin_password)
+    
+    if not (username_valid and password_valid):
         logger.warning(f"Failed login attempt for user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -41,11 +85,43 @@ async def convert_document(
     file: UploadFile = File(...), 
     current_user: str = Depends(get_current_user)
 ):
-    logger.info(f"User {current_user} requested conversion for file: {file.filename}")
-    # Salvar arquivo temporariamente
-    file_path = Path(settings.UPLOAD_DIR) / file.filename
+    # SECURITY: Validate file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+    
+    # SECURITY: Check file extension
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in settings.ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are allowed")
+    
+    # SECURITY: Check file size
+    if file.size and file.size > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE} bytes")
+    
+    # SECURITY: Sanitize filename to prevent path traversal
+    import re
+    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+    safe_filename = safe_filename[:100]  # Limit filename length
+    
+    # SECURITY: Use UUID for unique filename
+    import uuid
+    unique_filename = f"{uuid.uuid4()}_{safe_filename}"
+    file_path = Path(settings.UPLOAD_DIR) / unique_filename
+    
+    logger.info(f"User {current_user} requested conversion for file: {safe_filename}")
+    
+    # SECURITY: Limit file content size during write
+    max_size = settings.MAX_FILE_SIZE
+    total_size = 0
+    
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        while chunk := await file.read(8192):  # Read in chunks
+            total_size += len(chunk)
+            if total_size > max_size:
+                buffer.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=400, detail="File too large")
+            buffer.write(chunk)
 
     # Validar
     if not validator_service.validate(file_path):
@@ -72,10 +148,11 @@ async def get_result(
         return {"task_id": task_id, "status": "processing"}
     elif task_result.state == "FAILURE":
         logger.error(f"Task {task_id} failed: {task_result.result}")
+        # SECURITY: Don't expose internal error details
         return {
             "task_id": task_id,
             "status": "failed",
-            "error": str(task_result.result),
+            "error": "Processing failed. Please try again or contact support.",
         }
     elif task_result.state == "SUCCESS":
         result_data = task_result.result

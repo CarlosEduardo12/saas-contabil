@@ -32,3 +32,76 @@ def convert_document_task(self, input_path_str: str):
             "status": "error",
             "error": str(e)
         }
+
+@celery_app.task(bind=True, name="process_telegram_order")
+def process_telegram_order(self, order_id: str):
+    import asyncio
+    from sqlalchemy.future import select
+    from src.core.database import AsyncSessionLocal
+    from src.models.order import Order
+    from src.services.telegram import TelegramService
+    
+    # Helper to run async code in sync celery task
+    def run_async(coro):
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+
+    async def _process():
+        telegram_service = TelegramService()
+        async with AsyncSessionLocal() as db:
+            # Get Order
+            result = await db.execute(select(Order).where(Order.id == order_id))
+            order = result.scalars().first()
+            
+            if not order:
+                logger.error(f"Order {order_id} not found in worker")
+                return
+            
+            try:
+                # Download File
+                file_path = await telegram_service.get_file_path(order.file_id)
+                if not file_path:
+                    raise Exception("Failed to get file path from Telegram")
+                
+                local_pdf_path = Path(settings.UPLOAD_DIR) / f"{order_id}.pdf"
+                await telegram_service.download_file(file_path, str(local_pdf_path))
+                order.pdf_path = str(local_pdf_path)
+                
+                # Convert
+                output_filename = f"{order_id}.csv"
+                output_path = Path(settings.OUTPUT_DIR) / output_filename
+                
+                pdf_reader = PDFReader()
+                csv_writer = CSVWriter()
+                converter = DocumentConverterService(pdf_reader, csv_writer)
+                converter.convert(local_pdf_path, output_path)
+                
+                order.csv_path = str(output_path)
+                order.status = "completed"
+                await db.commit()
+                
+                # Send Document
+                await telegram_service.send_document(
+                    order.chat_id, 
+                    str(output_path), 
+                    caption=f"Seu arquivo convertido (Pedido {order_id})"
+                )
+                
+            except Exception as e:
+                logger.error(f"Error processing order {order_id}: {e}")
+                order.status = "failed"
+                order.error = str(e)
+                await db.commit()
+                await telegram_service.send_message(
+                    order.chat_id, 
+                    f"Erro ao processar seu pedido: {e}"
+                )
+
+    try:
+        run_async(_process())
+    except Exception as e:
+        logger.error(f"Fatal error in worker task: {e}")
+

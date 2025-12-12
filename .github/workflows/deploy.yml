@@ -1,0 +1,27 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+    
+    - name: Deploy to Railway
+      run: |
+        railway login --token ${{ secrets.RAILWAY_TOKEN }}
+        railway variables set SECRET_KEY="${{ secrets.SECRET_KEY }}"
+        railway variables set ADMIN_USERNAME="${{ secrets.ADMIN_USERNAME }}"
+        railway variables set ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}"
+        railway variables set TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+        railway variables set TELEGRAM_WEBHOOK_SECRET="${{ secrets.TELEGRAM_WEBHOOK_SECRET }}"
+        railway variables set TELEGRAM_PROVIDER_TOKEN="${{ secrets.TELEGRAM_PROVIDER_TOKEN }}"
+        railway variables set ENVIRONMENT="production"
+        railway up --detach

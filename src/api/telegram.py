@@ -1,0 +1,350 @@
+from fastapi import APIRouter, Request, Header, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import uuid
+import os
+
+from src.core.config import settings
+from src.core.database import get_db
+from src.core.logging_config import logger
+from src.services.telegram import TelegramService
+from src.models.order import Order, Payment
+# We will import the task later to avoid circular imports if any, or just import it
+# from src.worker.tasks import process_telegram_order
+
+router = APIRouter()
+telegram_service = TelegramService()
+
+@router.post("/telegram/webhook")
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    # Validate Secret Token
+    if settings.TELEGRAM_WEBHOOK_SECRET and x_telegram_bot_api_secret_token != settings.TELEGRAM_WEBHOOK_SECRET:
+        logger.warning("Invalid Telegram Secret Token")
+        raise HTTPException(status_code=403, detail="Invalid Token")
+
+    update = await request.json()
+    
+    # Handle Commands and Text Messages
+    if "message" in update and "text" in update["message"]:
+        msg = update["message"]
+        chat_id = msg["chat"]["id"]
+        text = msg["text"].strip()
+        user_name = msg.get("from", {}).get("first_name", "Usuário")
+        
+        # Handle /start command
+        if text == "/start":
+            welcome_message = f"""🤖 Olá {user_name}! Bem-vindo ao **SaaS Contabil Converter**!
+
+📊 **O que eu faço:**
+Converto seus arquivos PDF contábeis para formato CSV de forma rápida, segura e automática.
+
+💰 **Preço:** R$ 50,00 por conversão
+
+🔒 **Segurança:**
+• Apenas PDFs cadastrados são aceitos
+• Dados criptografados e seguros
+• Processamento automático
+
+📋 **Como usar:**
+1. Envie seu arquivo PDF
+2. Faça o pagamento via Telegram
+3. Receba seu CSV convertido
+
+⚡ **Comandos disponíveis:**
+/help - Ajuda detalhada
+/preco - Informações sobre preços
+/status - Verificar suas conversões
+
+🚀 **Pronto para começar?** Envie seu PDF agora!"""
+            
+            await telegram_service.send_message(chat_id, welcome_message)
+            return {"ok": True}
+        
+        # Handle /help command
+        elif text == "/help":
+            help_message = """📚 **Ajuda - SaaS Contabil Converter**
+
+🔍 **Arquivos aceitos:**
+• Apenas arquivos PDF
+• Máximo 10MB por arquivo
+• PDFs devem estar cadastrados em nossa base
+
+💳 **Pagamento:**
+• R$ 50,00 por conversão
+• Pagamento via Telegram Payments
+• Processamento imediato após confirmação
+
+⏱️ **Processo:**
+1. **Envie o PDF** → Sistema valida o arquivo
+2. **Pague a fatura** → Receba via Telegram
+3. **Aguarde** → Processamento automático (1-2 min)
+4. **Receba o CSV** → Download direto no chat
+
+❓ **Problemas comuns:**
+• "PDF não cadastrado" → Arquivo não está em nossa base
+• "Arquivo muito grande" → Reduza o tamanho para menos de 10MB
+• "Formato inválido" → Envie apenas arquivos PDF
+
+📞 **Suporte:** Entre em contato se precisar de ajuda!"""
+            
+            await telegram_service.send_message(chat_id, help_message)
+            return {"ok": True}
+        
+        # Handle /preco command
+        elif text == "/preco":
+            price_message = """💰 **Preços - SaaS Contabil Converter**
+
+🏷️ **Conversão PDF → CSV**
+• **Preço:** R$ 50,00 por arquivo
+• **Moeda:** Real Brasileiro (BRL)
+• **Pagamento:** Via Telegram Payments
+
+✅ **Incluído no preço:**
+• Validação do arquivo PDF
+• Conversão completa para CSV
+• Processamento automático
+• Entrega imediata no chat
+• Suporte técnico
+
+⚡ **Processo rápido:**
+• Pagamento instantâneo
+• Conversão em 1-2 minutos
+• Sem taxas adicionais
+
+🔒 **Garantias:**
+• Dados seguros e criptografados
+• Arquivos deletados após conversão
+• Privacidade total
+
+💡 **Dica:** Tenha seu PDF pronto antes de iniciar o pagamento!"""
+            
+            await telegram_service.send_message(chat_id, price_message)
+            return {"ok": True}
+        
+        # Handle /status command
+        elif text == "/status":
+            # Get user's recent orders
+            try:
+                result = await db.execute(
+                    select(Order).where(Order.chat_id == chat_id)
+                    .order_by(Order.created_at.desc()).limit(5)
+                )
+                orders = result.scalars().all()
+                
+                if not orders:
+                    status_message = """📊 **Status das Conversões**
+
+🔍 **Nenhuma conversão encontrada**
+
+Você ainda não fez nenhuma conversão. 
+Envie um PDF para começar!"""
+                else:
+                    status_message = "📊 **Suas últimas conversões:**\n\n"
+                    for order in orders:
+                        status_emoji = {
+                            "pending_payment": "⏳",
+                            "paid": "💳",
+                            "processing": "⚙️",
+                            "completed": "✅",
+                            "failed": "❌"
+                        }.get(order.status, "❓")
+                        
+                        status_text = {
+                            "pending_payment": "Aguardando pagamento",
+                            "paid": "Pago - Processando",
+                            "processing": "Em processamento",
+                            "completed": "Concluído",
+                            "failed": "Falhou"
+                        }.get(order.status, "Status desconhecido")
+                        
+                        status_message += f"{status_emoji} **{order.file_name}**\n"
+                        status_message += f"   Status: {status_text}\n"
+                        status_message += f"   Data: {order.created_at.strftime('%d/%m/%Y %H:%M')}\n\n"
+                
+                await telegram_service.send_message(chat_id, status_message)
+                return {"ok": True}
+                
+            except Exception as e:
+                logger.error(f"Error getting status for chat {chat_id}: {e}")
+                await telegram_service.send_message(
+                    chat_id, 
+                    "❌ Erro ao buscar status. Tente novamente em alguns instantes."
+                )
+                return {"ok": True}
+        
+        # Handle other text messages
+        else:
+            other_message = """🤖 **Não entendi sua mensagem**
+
+📋 **Comandos disponíveis:**
+/start - Informações principais
+/help - Ajuda detalhada  
+/preco - Ver preços
+/status - Suas conversões
+
+📄 **Para converter:** Envie um arquivo PDF
+💡 **Dica:** Use os comandos acima para navegar!"""
+            
+            await telegram_service.send_message(chat_id, other_message)
+            return {"ok": True}
+    
+    # 1. Handle Document (Create Order)
+    if "message" in update and "document" in update["message"]:
+        msg = update["message"]
+        chat_id = msg["chat"]["id"]
+        doc = msg["document"]
+        file_id = doc["file_id"]
+        file_name = doc.get("file_name", "document.pdf")
+        file_size = doc.get("file_size", 0)
+        
+        # Validate file type
+        if not file_name.lower().endswith('.pdf'):
+            error_message = """❌ **Arquivo não suportado**
+
+📋 **Apenas arquivos PDF são aceitos**
+
+✅ **Formatos aceitos:** .pdf
+❌ **Não aceitos:** .doc, .docx, .txt, .jpg, etc.
+
+💡 **Dica:** Converta seu arquivo para PDF primeiro e tente novamente."""
+            
+            await telegram_service.send_message(chat_id, error_message)
+            return {"ok": True}
+        
+        # Validate file size (10MB limit)
+        max_size = 10 * 1024 * 1024  # 10MB
+        if file_size > max_size:
+            error_message = f"""❌ **Arquivo muito grande**
+
+📏 **Tamanho atual:** {file_size / (1024*1024):.1f} MB
+📏 **Limite máximo:** 10 MB
+
+� ***Soluções:**
+• Comprima o PDF usando ferramentas online
+• Divida o arquivo em partes menores
+• Remova páginas desnecessárias
+
+🔄 Tente novamente com um arquivo menor."""
+            
+            await telegram_service.send_message(chat_id, error_message)
+            return {"ok": True}
+        
+        # TODO: Add file validation here (check if PDF is registered)
+        # For now, we'll simulate validation based on filename
+        if not file_name.startswith("Ponto"):
+            error_message = f"""❌ **PDF não cadastrado**
+
+🔍 **Arquivo:** {file_name}
+
+Este PDF não está registrado em nossa base de dados para conversão.
+
+📋 **Arquivos aceitos:**
+• PDFs que começam com "Ponto"
+• Documentos previamente cadastrados
+
+💡 **Precisa cadastrar um PDF?** Entre em contato conosco!"""
+            
+            await telegram_service.send_message(chat_id, error_message)
+            return {"ok": True}
+        
+        # Create Order
+        order_id = uuid.uuid4()
+        payload = f"order_{order_id}"
+        
+        new_order = Order(
+            id=order_id,
+            chat_id=chat_id,
+            file_id=file_id,
+            file_name=file_name,
+            file_size=file_size,
+            payload=payload,
+            status="pending_payment"
+        )
+        db.add(new_order)
+        await db.commit()
+        
+        # Send confirmation message first
+        confirmation_message = f"""📄 **Arquivo aceito!**
+
+**Nome:** {file_name}
+**Tamanho:** {file_size / 1024:.1f} KB
+
+✅ PDF validado com sucesso!
+💰 **Valor:** R$ 50,00
+
+👇 **Próximo passo:** Pague a fatura abaixo para iniciar a conversão."""
+        
+        await telegram_service.send_message(chat_id, confirmation_message)
+        
+        # Send Invoice
+        await telegram_service.send_invoice(
+            chat_id=chat_id,
+            title="Conversão PDF → CSV",
+            description=f"Conversão do arquivo {file_name} para formato CSV. Processamento automático após pagamento.",
+            payload=payload,
+            price_cents=5000
+        )
+        return {"ok": True}
+
+    # 2. Handle Pre-Checkout Query
+    if "pre_checkout_query" in update:
+        query = update["pre_checkout_query"]
+        query_id = query["id"]
+        await telegram_service.answer_pre_checkout_query(query_id, ok=True)
+        return {"ok": True}
+
+    # 3. Handle Successful Payment
+    if "message" in update and "successful_payment" in update["message"]:
+        msg = update["message"]
+        payment_info = msg["successful_payment"]
+        payload = payment_info["invoice_payload"]
+        
+        # Find Order
+        result = await db.execute(select(Order).where(Order.payload == payload))
+        order = result.scalars().first()
+        
+        if not order:
+            logger.error(f"Order not found for payload {payload}")
+            return {"ok": True}
+            
+        # SECURITY: Strict payment validation
+        if payment_info["total_amount"] != order.price_cents:
+            logger.error(f"SECURITY ALERT: Amount mismatch for order {order.id}. Expected: {order.price_cents}, Received: {payment_info['total_amount']}")
+            # SECURITY: Reject invalid payments
+            return {"ok": False, "error": "Payment amount mismatch"}
+        
+        # SECURITY: Validate currency
+        if payment_info.get("currency") != order.currency:
+            logger.error(f"SECURITY ALERT: Currency mismatch for order {order.id}")
+            return {"ok": False, "error": "Currency mismatch"}
+        
+        # Update Order
+        order.status = "paid"
+        order.provider_payment_id = payment_info["provider_payment_charge_id"]
+        order.telegram_payment_id = payment_info["telegram_payment_charge_id"]
+        
+        # Record Payment
+        new_payment = Payment(
+            order_id=order.id,
+            amount_cents=payment_info["total_amount"],
+            currency=payment_info["currency"],
+            provider_payload=payment_info,
+            status="success"
+        )
+        db.add(new_payment)
+        await db.commit()
+        
+        # Trigger Processing Task
+        # We import here to avoid potential circular import issues at module level
+        from src.worker.tasks import process_telegram_order
+        process_telegram_order.delay(str(order.id))
+        
+        await telegram_service.send_message(order.chat_id, "Pagamento confirmado! Iniciando conversão...")
+        
+        return {"ok": True}
+
+    return {"ok": True}
