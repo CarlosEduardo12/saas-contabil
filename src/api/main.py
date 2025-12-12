@@ -54,7 +54,12 @@ async def health_check():
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "SaaS Contabil Converter API", "status": "running"}
+    return {
+        "message": "SaaS Contabil Converter API", 
+        "status": "running",
+        "version": "1.0.0",
+        "timestamp": "2025-12-11"
+    }
 
 @app.on_event("startup")
 async def startup():
