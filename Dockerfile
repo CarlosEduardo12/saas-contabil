@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
+# Copy and make start script executable
+COPY start.sh .
+RUN chmod +x start.sh
+
 # Create directories
 RUN mkdir -p uploads outputs
 
@@ -26,5 +30,5 @@ ENV PYTHONPATH=/app
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Default command (Railway will override with $PORT)
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+# Use start script
+CMD ["./start.sh"]
