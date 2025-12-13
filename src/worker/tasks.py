@@ -6,6 +6,7 @@ from src.core.config import settings
 from src.services.document_converter import DocumentConverterService
 from src.services.pdf_reader import PDFReader
 from src.services.csv_writer import CSVWriter
+from src.core.logging_config import logger
 
 @celery_app.task(bind=True, name="convert_document")
 def convert_document_task(self, input_path_str: str):
@@ -106,8 +107,8 @@ def process_telegram_order(self, order_id: str):
         logger.error(f"Fatal error in worker task: {e}")
 
 
-@celery_app.task(bind=True, name="simulate_test_payment")
-def simulate_test_payment(self, order_id: str):
+@celery_app.task(bind=True, name="simulate_test_payment_task")
+def simulate_test_payment_task(self, order_id: str, chat_id: int):
     """Simulate payment for test user after 5 seconds"""
     import asyncio
     import time
@@ -160,7 +161,7 @@ def simulate_test_payment(self, order_id: str):
                 
                 # Notify user
                 await telegram_service.send_message(
-                    order.chat_id,
+                    chat_id,
                     "✅ **[MODO TESTE] Pagamento simulado!** Iniciando conversão do seu arquivo..."
                 )
                 
