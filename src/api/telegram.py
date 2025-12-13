@@ -367,9 +367,18 @@ Este PDF não está registrado em nossa base de dados para conversão.
             
             await telegram_service.send_message(chat_id, test_message)
             
-            # Schedule test payment simulation (without Celery for now)
-            import asyncio
-            asyncio.create_task(simulate_test_payment_direct(str(order_id), chat_id))
+            # Schedule test payment simulation using background thread
+            import threading
+            def run_test_payment():
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(simulate_test_payment_direct(str(order_id), chat_id))
+                loop.close()
+            
+            thread = threading.Thread(target=run_test_payment)
+            thread.daemon = True
+            thread.start()
         
         return {"ok": True}
 

@@ -61,27 +61,7 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
-@app.post("/admin/clear/{chat_id}")
-async def clear_orders_temp(chat_id: int):
-    """Clear all orders for testing"""
-    try:
-        from sqlalchemy import text
-        
-        async with engine.begin() as conn:
-            # Delete all orders for this chat_id
-            delete_payments = text("DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE chat_id = :chat_id)")
-            delete_orders = text("DELETE FROM orders WHERE chat_id = :chat_id")
-            
-            await conn.execute(delete_payments, {"chat_id": chat_id})
-            result = await conn.execute(delete_orders, {"chat_id": chat_id})
-            rows_affected = result.rowcount
-        
-        logger.info(f"Deleted {rows_affected} orders for chat_id {chat_id}")
-        return {"status": "success", "orders_deleted": rows_affected}
-        
-    except Exception as e:
-        logger.error(f"Failed to delete orders: {e}")
-        return {"status": "error", "message": str(e)}
+
 
 
 
