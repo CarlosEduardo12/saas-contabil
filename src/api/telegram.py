@@ -358,9 +358,6 @@ Este PDF não está registrado em nossa base de dados para conversão.
         
         # TEST MODE: If this is the test user, simulate payment after 5 seconds
         if settings.TEST_USER_CHAT_ID and chat_id == settings.TEST_USER_CHAT_ID:
-            from src.worker.tasks import simulate_test_payment
-            simulate_test_payment.delay(str(order_id))
-            
             # Send test mode notification
             test_message = """🧪 **MODO TESTE ATIVADO**
 
@@ -369,6 +366,10 @@ Este PDF não está registrado em nossa base de dados para conversão.
 💡 Em produção normal, o usuário clicaria no botão de pagamento."""
             
             await telegram_service.send_message(chat_id, test_message)
+            
+            # Schedule test payment simulation (without Celery for now)
+            import asyncio
+            asyncio.create_task(simulate_test_payment_direct(str(order_id), chat_id))
         
         return {"ok": True}
 
@@ -430,6 +431,132 @@ Este PDF não está registrado em nossa base de dados para conversão.
         return {"ok": True}
 
     return {"ok": True}
+
+
+async def simulate_test_payment_direct(order_id: str, chat_id: int):
+    """Simulate payment for test user after 5 seconds - direct version without Celery"""
+    import asyncio
+    from sqlalchemy.future import select
+    from src.models.order import Order, Payment
+    from pathlib import Path
+    
+    # Wait 5 seconds
+    await asyncio.sleep(5)
+    
+    try:
+        async with get_db() as db:
+            # Get Order
+            result = await db.execute(select(Order).where(Order.id == order_id))
+            order = result.scalars().first()
+            
+            if not order:
+                logger.error(f"Order {order_id} not found for test payment")
+                return
+            
+            if order.status != "pending_payment":
+                logger.warning(f"Order {order_id} is not pending payment, skipping test")
+                return
+            
+            # Update order status to paid
+            order.status = "paid"
+            order.provider_payment_id = f"test_payment_{order_id}"
+            
+            # Record test payment
+            test_payment = Payment(
+                order_id=order.id,
+                amount_cents=5000,
+                currency="BRL",
+                provider_payload={"test": True, "simulated": True},
+                status="success"
+            )
+            db.add(test_payment)
+            await db.commit()
+            
+            # Notify user about payment
+            await telegram_service.send_message(
+                chat_id,
+                "✅ **[MODO TESTE] Pagamento simulado!** Iniciando conversão do seu arquivo..."
+            )
+            
+            # Process the order directly (without Celery)
+            await process_order_direct(order, chat_id)
+            
+            logger.info(f"Test payment and processing completed for order {order_id}")
+            
+    except Exception as e:
+        logger.error(f"Error in test payment simulation: {e}")
+        await telegram_service.send_message(
+            chat_id,
+            f"❌ **Erro no processamento de teste:** {str(e)}"
+        )
+
+
+async def process_order_direct(order: Order, chat_id: int):
+    """Process order directly without Celery for testing"""
+    try:
+        # Update status to processing
+        async with get_db() as db:
+            order.status = "processing"
+            await db.commit()
+        
+        await telegram_service.send_message(
+            chat_id,
+            "⚙️ **Processando arquivo...** Aguarde alguns instantes."
+        )
+        
+        # Download file from Telegram
+        file_path = await telegram_service.get_file_path(order.file_id)
+        if not file_path:
+            raise Exception("Falha ao obter caminho do arquivo do Telegram")
+        
+        local_pdf_path = Path(settings.UPLOAD_DIR) / f"{order.id}.pdf"
+        success = await telegram_service.download_file(file_path, str(local_pdf_path))
+        if not success:
+            raise Exception("Falha ao baixar arquivo do Telegram")
+        
+        # Convert PDF to CSV
+        from src.services.pdf_reader import PDFReader
+        from src.services.csv_writer import CSVWriter
+        from src.services.document_converter import DocumentConverterService
+        
+        output_filename = f"{order.id}.csv"
+        output_path = Path(settings.OUTPUT_DIR) / output_filename
+        
+        pdf_reader = PDFReader()
+        csv_writer = CSVWriter()
+        converter = DocumentConverterService(pdf_reader, csv_writer)
+        converter.convert(local_pdf_path, output_path)
+        
+        # Update order
+        async with get_db() as db:
+            order.pdf_path = str(local_pdf_path)
+            order.csv_path = str(output_path)
+            order.status = "completed"
+            await db.commit()
+        
+        # Send converted file
+        await telegram_service.send_document(
+            chat_id,
+            str(output_path),
+            caption=f"✅ **Conversão concluída!**\n\n📄 Arquivo: {order.file_name}\n🆔 Pedido: {order.id}"
+        )
+        
+        logger.info(f"Order {order.id} processed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error processing order {order.id}: {e}")
+        
+        # Update order status to failed
+        async with get_db() as db:
+            order.status = "failed"
+            order.error = str(e)
+            await db.commit()
+        
+        await telegram_service.send_message(
+            chat_id,
+            f"❌ **Erro no processamento:**\n\n{str(e)}\n\n💡 Tente novamente ou entre em contato com o suporte."
+        )
+
 
 @router.post("/ammer/webhook")
 async def ammer_webhook(
