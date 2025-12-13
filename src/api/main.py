@@ -61,42 +61,7 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
-@app.post("/admin/clear-pending-orders/{chat_id}")
-async def clear_pending_orders(chat_id: int):
-    """Temporary endpoint to clear pending orders for testing"""
-    try:
-        from sqlalchemy import text
-        from sqlalchemy.future import select
-        from src.models.order import Order
-        
-        async with engine.begin() as conn:
-            # Update all pending orders for this chat_id to completed
-            update_query = text("""
-                UPDATE orders 
-                SET status = 'completed', 
-                    updated_at = NOW(),
-                    error = 'Cleared for testing'
-                WHERE chat_id = :chat_id 
-                AND status IN ('pending_payment', 'paid', 'processing')
-            """)
-            
-            result = await conn.execute(update_query, {"chat_id": chat_id})
-            rows_affected = result.rowcount
-        
-        logger.info(f"Cleared {rows_affected} pending orders for chat_id {chat_id}")
-        return {
-            "status": "success",
-            "message": f"Cleared {rows_affected} pending orders for chat_id {chat_id}",
-            "chat_id": chat_id,
-            "orders_cleared": rows_affected
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to clear pending orders: {e}")
-        return {
-            "status": "error", 
-            "message": f"Failed to clear orders: {str(e)}"
-        }
+
 
 
 
