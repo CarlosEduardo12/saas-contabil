@@ -61,6 +61,154 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
+@app.get("/test/system")
+async def test_system():
+    """Test system components"""
+    results = {}
+    
+    # Test imports
+    try:
+        from pathlib import Path
+        from src.services.pdf_reader import PDFReader
+        from src.services.csv_writer import CSVWriter
+        from src.services.document_converter import DocumentConverterService
+        from src.services.telegram import TelegramService
+        from src.services.ammer_pay import AmmerPayService
+        results["imports"] = "✅ All imports successful"
+    except Exception as e:
+        results["imports"] = f"❌ Import error: {e}"
+    
+    # Test directories
+    try:
+        import os
+        upload_exists = os.path.exists(settings.UPLOAD_DIR)
+        output_exists = os.path.exists(settings.OUTPUT_DIR)
+        results["directories"] = {
+            "upload_dir": "✅ Exists" if upload_exists else "❌ Missing",
+            "output_dir": "✅ Exists" if output_exists else "❌ Missing"
+        }
+    except Exception as e:
+        results["directories"] = f"❌ Directory error: {e}"
+    
+    # Test configuration
+    try:
+        config_status = {
+            "secret_key": "✅ Set" if settings.SECRET_KEY else "❌ Missing",
+            "telegram_token": "✅ Set" if settings.TELEGRAM_BOT_TOKEN else "❌ Missing",
+            "database_url": "✅ Set" if settings.DATABASE_URL else "❌ Missing",
+            "test_user_id": "✅ Set" if settings.TEST_USER_CHAT_ID else "❌ Missing",
+            "max_file_size": f"✅ {settings.MAX_FILE_SIZE // (1024*1024)}MB"
+        }
+        results["configuration"] = config_status
+    except Exception as e:
+        results["configuration"] = f"❌ Config error: {e}"
+    
+    # Test database connection
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        results["database"] = "✅ Connection successful"
+    except Exception as e:
+        results["database"] = f"❌ Database error: {e}"
+    
+    return {
+        "status": "System Test Results",
+        "timestamp": "2025-12-13",
+        "results": results
+    }
+
+@app.post("/test/processing")
+async def test_processing():
+    """Test file processing components"""
+    results = {}
+    
+    try:
+        from pathlib import Path
+        from src.services.pdf_reader import PDFReader
+        from src.services.csv_writer import CSVWriter
+        from src.services.document_converter import DocumentConverterService
+        
+        # Test PDF reader
+        try:
+            pdf_reader = PDFReader()
+            results["pdf_reader"] = "✅ PDFReader initialized"
+        except Exception as e:
+            results["pdf_reader"] = f"❌ PDFReader error: {e}"
+        
+        # Test CSV writer
+        try:
+            csv_writer = CSVWriter()
+            results["csv_writer"] = "✅ CSVWriter initialized"
+        except Exception as e:
+            results["csv_writer"] = f"❌ CSVWriter error: {e}"
+        
+        # Test converter
+        try:
+            converter = DocumentConverterService(pdf_reader, csv_writer)
+            results["converter"] = "✅ DocumentConverter initialized"
+        except Exception as e:
+            results["converter"] = f"❌ DocumentConverter error: {e}"
+        
+        # Test path operations
+        try:
+            test_path = Path(settings.UPLOAD_DIR) / "test.pdf"
+            output_path = Path(settings.OUTPUT_DIR) / "test.csv"
+            results["path_operations"] = "✅ Path operations working"
+        except Exception as e:
+            results["path_operations"] = f"❌ Path error: {e}"
+        
+    except Exception as e:
+        results["general_error"] = f"❌ General error: {e}"
+    
+    return {
+        "status": "Processing Test Results",
+        "results": results
+    }
+
+@app.post("/admin/cleanup/{chat_id}")
+async def cleanup_user_orders(chat_id: int):
+    """Clean up all orders for a specific user (for testing)"""
+    try:
+        from sqlalchemy import text
+        
+        async with engine.begin() as conn:
+            # Get count first
+            count_result = await conn.execute(
+                text("SELECT COUNT(*) FROM orders WHERE chat_id = :chat_id"),
+                {"chat_id": chat_id}
+            )
+            order_count = count_result.scalar()
+            
+            # Delete payments first (foreign key constraint)
+            await conn.execute(
+                text("DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE chat_id = :chat_id)"),
+                {"chat_id": chat_id}
+            )
+            
+            # Delete orders
+            delete_result = await conn.execute(
+                text("DELETE FROM orders WHERE chat_id = :chat_id"),
+                {"chat_id": chat_id}
+            )
+            
+            logger.info(f"Cleaned up {order_count} orders for chat_id {chat_id}")
+            
+            return {
+                "status": "success",
+                "chat_id": chat_id,
+                "orders_found": order_count,
+                "orders_deleted": delete_result.rowcount,
+                "message": f"Cleaned up {order_count} orders for testing"
+            }
+            
+    except Exception as e:
+        logger.error(f"Cleanup failed for chat_id {chat_id}: {e}")
+        return {
+            "status": "error",
+            "chat_id": chat_id,
+            "error": str(e)
+        }
+
 
 
 

@@ -521,6 +521,7 @@ async def simulate_test_payment_direct(order_id: str, chat_id: int):
 
 async def process_file_simple(order_id: str, chat_id: int, file_id: str, file_name: str):
     """Simplified file processing without complex database operations"""
+    from pathlib import Path
     try:
         await telegram_service.send_message(
             chat_id,
@@ -576,6 +577,7 @@ async def process_file_simple(order_id: str, chat_id: int, file_id: str, file_na
 
 async def process_order_direct(order: Order, chat_id: int):
     """Process order directly without Celery for testing"""
+    from pathlib import Path
     logger.info(f"Processing order {order.id} directly for chat {chat_id}")
     try:
         # Update status to processing
