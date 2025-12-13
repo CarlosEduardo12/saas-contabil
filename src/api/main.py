@@ -61,17 +61,7 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
-@app.delete("/temp/orders/{chat_id}")
-async def temp_delete_orders(chat_id: int):
-    """Temporary cleanup"""
-    try:
-        from sqlalchemy import text
-        async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE chat_id = :chat_id)"), {"chat_id": chat_id})
-            result = await conn.execute(text("DELETE FROM orders WHERE chat_id = :chat_id"), {"chat_id": chat_id})
-            return {"deleted": result.rowcount}
-    except Exception as e:
-        return {"error": str(e)}
+
 
 
 
