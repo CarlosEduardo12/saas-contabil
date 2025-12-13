@@ -73,10 +73,25 @@ class TelegramService:
 
     async def get_file_path(self, file_id: str):
         try:
+            logger.info(f"Requesting file path for file_id: {file_id}")
             response = await self.client.post("/getFile", json={"file_id": file_id})
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                logger.error(f"Telegram API error: {response.status_code} - {response.text}")
+                return None
+                
             result = response.json().get("result", {})
-            return result.get("file_path")
+            file_path = result.get("file_path")
+            file_size = result.get("file_size", 0)
+            
+            logger.info(f"File info - Path: {file_path}, Size: {file_size} bytes")
+            
+            # Check Telegram file size limit (20MB for getFile API)
+            if file_size > 20 * 1024 * 1024:
+                logger.error(f"File too large for Telegram API: {file_size} bytes (limit: 20MB)")
+                return None
+                
+            return file_path
         except Exception as e:
             logger.error(f"Failed to get file path: {e}")
             return None

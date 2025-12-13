@@ -245,13 +245,13 @@ Envie um PDF para começar!"""
             await telegram_service.send_message(chat_id, pending_message)
             return {"ok": True}
 
-        # Validate file size (60MB limit)
-        max_size = 60 * 1024 * 1024  # 60MB
+        # Validate file size (20MB limit for Telegram API)
+        max_size = 20 * 1024 * 1024  # 20MB (Telegram API limit)
         if file_size > max_size:
             error_message = f"""❌ **Arquivo muito grande**
 
 📏 **Tamanho atual:** {file_size / (1024*1024):.1f} MB
-📏 **Limite máximo:** 60 MB
+📏 **Limite máximo:** 20 MB (limitação da API do Telegram)
 
 � ***Soluções:**
 • Comprima o PDF usando ferramentas online
@@ -531,7 +531,7 @@ async def process_file_simple(order_id: str, chat_id: int, file_id: str, file_na
         logger.info(f"Getting file path for file_id: {file_id}")
         file_path = await telegram_service.get_file_path(file_id)
         if not file_path:
-            raise Exception("Falha ao obter caminho do arquivo do Telegram")
+            raise Exception("Arquivo muito grande para download via Telegram API (limite: 20MB). Use arquivos menores ou entre em contato com o suporte.")
         
         logger.info(f"Downloading file from path: {file_path}")
         local_pdf_path = Path(settings.UPLOAD_DIR) / f"{order_id}.pdf"
