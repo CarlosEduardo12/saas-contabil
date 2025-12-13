@@ -61,37 +61,7 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
-@app.post("/migrate-ammer-pay")
-async def migrate_ammer_pay():
-    """Temporary endpoint to migrate database for Ammer Pay"""
-    try:
-        from sqlalchemy import text
-        
-        migrations = [
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS ammer_payment_id TEXT;",
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS ammer_payment_url TEXT;", 
-            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'ammer_pay';"
-        ]
-        
-        async with engine.begin() as conn:
-            for migration in migrations:
-                logger.info(f"Executing migration: {migration}")
-                await conn.execute(text(migration))
-                logger.info("Migration executed successfully")
-        
-        logger.info("All Ammer Pay migrations completed successfully")
-        return {
-            "status": "success",
-            "message": "Ammer Pay migrations completed successfully",
-            "migrations_executed": len(migrations)
-        }
-        
-    except Exception as e:
-        logger.error(f"Migration failed: {e}")
-        return {
-            "status": "error", 
-            "message": f"Migration failed: {str(e)}"
-        }
+
 
 @app.on_event("startup")
 async def startup():
