@@ -444,7 +444,8 @@ async def simulate_test_payment_direct(order_id: str, chat_id: int):
     await asyncio.sleep(5)
     
     try:
-        async with get_db() as db:
+        from src.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
             # Get Order
             result = await db.execute(select(Order).where(Order.id == order_id))
             order = result.scalars().first()
@@ -479,6 +480,7 @@ async def simulate_test_payment_direct(order_id: str, chat_id: int):
             )
             
             # Process the order directly (without Celery)
+            logger.info(f"Starting direct processing for order {order_id}")
             await process_order_direct(order, chat_id)
             
             logger.info(f"Test payment and processing completed for order {order_id}")
@@ -493,9 +495,12 @@ async def simulate_test_payment_direct(order_id: str, chat_id: int):
 
 async def process_order_direct(order: Order, chat_id: int):
     """Process order directly without Celery for testing"""
+    logger.info(f"Processing order {order.id} directly for chat {chat_id}")
     try:
         # Update status to processing
-        async with get_db() as db:
+        from src.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            await db.merge(order)
             order.status = "processing"
             await db.commit()
         
@@ -505,16 +510,21 @@ async def process_order_direct(order: Order, chat_id: int):
         )
         
         # Download file from Telegram
+        logger.info(f"Getting file path for file_id: {order.file_id}")
         file_path = await telegram_service.get_file_path(order.file_id)
         if not file_path:
             raise Exception("Falha ao obter caminho do arquivo do Telegram")
         
+        logger.info(f"Downloading file from path: {file_path}")
         local_pdf_path = Path(settings.UPLOAD_DIR) / f"{order.id}.pdf"
         success = await telegram_service.download_file(file_path, str(local_pdf_path))
         if not success:
             raise Exception("Falha ao baixar arquivo do Telegram")
         
+        logger.info(f"File downloaded successfully to: {local_pdf_path}")
+        
         # Convert PDF to CSV
+        logger.info(f"Starting PDF to CSV conversion for order {order.id}")
         from src.services.pdf_reader import PDFReader
         from src.services.csv_writer import CSVWriter
         from src.services.document_converter import DocumentConverterService
@@ -527,19 +537,24 @@ async def process_order_direct(order: Order, chat_id: int):
         converter = DocumentConverterService(pdf_reader, csv_writer)
         converter.convert(local_pdf_path, output_path)
         
+        logger.info(f"Conversion completed. Output file: {output_path}")
+        
         # Update order
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
+            await db.merge(order)
             order.pdf_path = str(local_pdf_path)
             order.csv_path = str(output_path)
             order.status = "completed"
             await db.commit()
         
         # Send converted file
+        logger.info(f"Sending converted file to chat {chat_id}")
         await telegram_service.send_document(
             chat_id,
             str(output_path),
             caption=f"✅ **Conversão concluída!**\n\n📄 Arquivo: {order.file_name}\n🆔 Pedido: {order.id}"
         )
+        logger.info(f"File sent successfully to chat {chat_id}")
         
         logger.info(f"Order {order.id} processed successfully")
         
@@ -547,7 +562,8 @@ async def process_order_direct(order: Order, chat_id: int):
         logger.error(f"Error processing order {order.id}: {e}")
         
         # Update order status to failed
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
+            await db.merge(order)
             order.status = "failed"
             order.error = str(e)
             await db.commit()
