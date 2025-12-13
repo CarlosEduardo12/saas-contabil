@@ -105,6 +105,7 @@ async def test_system():
     
     # Test database connection
     try:
+        from sqlalchemy import text
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
         results["database"] = "✅ Connection successful"
