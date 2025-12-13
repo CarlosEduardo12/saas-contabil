@@ -367,18 +367,15 @@ Este PDF não está registrado em nossa base de dados para conversão.
             
             await telegram_service.send_message(chat_id, test_message)
             
-            # Schedule test payment simulation using background thread
-            import threading
-            def run_test_payment():
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(simulate_test_payment_direct(str(order_id), chat_id))
-                loop.close()
+            # Schedule test payment simulation - simplified approach
+            import asyncio
             
-            thread = threading.Thread(target=run_test_payment)
-            thread.daemon = True
-            thread.start()
+            async def delayed_test_payment():
+                await asyncio.sleep(5)
+                await simulate_test_payment_simple(str(order_id), chat_id, file_id, file_name)
+            
+            # Create task in current event loop
+            asyncio.create_task(delayed_test_payment())
         
         return {"ok": True}
 
@@ -442,6 +439,26 @@ Este PDF não está registrado em nossa base de dados para conversão.
     return {"ok": True}
 
 
+async def simulate_test_payment_simple(order_id: str, chat_id: int, file_id: str, file_name: str):
+    """Simplified test payment simulation"""
+    try:
+        # Notify user about payment
+        await telegram_service.send_message(
+            chat_id,
+            "✅ **[MODO TESTE] Pagamento simulado!** Iniciando conversão do seu arquivo..."
+        )
+        
+        # Process directly without complex database operations
+        await process_file_simple(order_id, chat_id, file_id, file_name)
+        
+    except Exception as e:
+        logger.error(f"Error in simple test payment: {e}")
+        await telegram_service.send_message(
+            chat_id,
+            f"❌ **Erro no processamento:** {str(e)}"
+        )
+
+
 async def simulate_test_payment_direct(order_id: str, chat_id: int):
     """Simulate payment for test user after 5 seconds - direct version without Celery"""
     import asyncio
@@ -499,6 +516,61 @@ async def simulate_test_payment_direct(order_id: str, chat_id: int):
         await telegram_service.send_message(
             chat_id,
             f"❌ **Erro no processamento de teste:** {str(e)}"
+        )
+
+
+async def process_file_simple(order_id: str, chat_id: int, file_id: str, file_name: str):
+    """Simplified file processing without complex database operations"""
+    try:
+        await telegram_service.send_message(
+            chat_id,
+            "⚙️ **Processando arquivo...** Aguarde alguns instantes."
+        )
+        
+        # Download file from Telegram
+        logger.info(f"Getting file path for file_id: {file_id}")
+        file_path = await telegram_service.get_file_path(file_id)
+        if not file_path:
+            raise Exception("Falha ao obter caminho do arquivo do Telegram")
+        
+        logger.info(f"Downloading file from path: {file_path}")
+        local_pdf_path = Path(settings.UPLOAD_DIR) / f"{order_id}.pdf"
+        success = await telegram_service.download_file(file_path, str(local_pdf_path))
+        if not success:
+            raise Exception("Falha ao baixar arquivo do Telegram")
+        
+        logger.info(f"File downloaded successfully to: {local_pdf_path}")
+        
+        # Convert PDF to CSV
+        logger.info(f"Starting PDF to CSV conversion for order {order_id}")
+        from src.services.pdf_reader import PDFReader
+        from src.services.csv_writer import CSVWriter
+        from src.services.document_converter import DocumentConverterService
+        
+        output_filename = f"{order_id}.csv"
+        output_path = Path(settings.OUTPUT_DIR) / output_filename
+        
+        pdf_reader = PDFReader()
+        csv_writer = CSVWriter()
+        converter = DocumentConverterService(pdf_reader, csv_writer)
+        converter.convert(local_pdf_path, output_path)
+        
+        logger.info(f"Conversion completed. Output file: {output_path}")
+        
+        # Send converted file
+        logger.info(f"Sending converted file to chat {chat_id}")
+        await telegram_service.send_document(
+            chat_id,
+            str(output_path),
+            caption=f"✅ **Conversão concluída!**\n\n📄 Arquivo: {file_name}\n🆔 Pedido: {order_id}"
+        )
+        logger.info(f"File sent successfully to chat {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in simple file processing: {e}")
+        await telegram_service.send_message(
+            chat_id,
+            f"❌ **Erro no processamento:**\n\n{str(e)}\n\n💡 Tente novamente ou entre em contato com o suporte."
         )
 
 
