@@ -61,6 +61,20 @@ async def root():
         "timestamp": "2025-12-11"
     }
 
+@app.delete("/admin/orders/{chat_id}")
+async def delete_all_orders(chat_id: int):
+    """Delete all orders for chat_id"""
+    try:
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            # Delete payments first (foreign key constraint)
+            await conn.execute(text("DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE chat_id = :chat_id)"), {"chat_id": chat_id})
+            # Delete orders
+            result = await conn.execute(text("DELETE FROM orders WHERE chat_id = :chat_id"), {"chat_id": chat_id})
+            return {"deleted": result.rowcount}
+    except Exception as e:
+        return {"error": str(e)}
+
 
 
 
