@@ -36,6 +36,9 @@ class Settings:
     AMMER_PAY_API_KEY: str = os.getenv("AMMER_PAY_API_KEY", "")
     AMMER_PAY_SECRET: str = os.getenv("AMMER_PAY_SECRET", "")
     AMMER_PAY_WEBHOOK_SECRET: str = os.getenv("AMMER_PAY_WEBHOOK_SECRET", "")
+    
+    # Test Mode - Auto-approve payments for specific user
+    TEST_USER_CHAT_ID: int = int(os.getenv("TEST_USER_CHAT_ID", "0"))  # Your chat ID for testing
 
 settings = Settings()
 

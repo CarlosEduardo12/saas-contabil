@@ -105,3 +105,75 @@ def process_telegram_order(self, order_id: str):
     except Exception as e:
         logger.error(f"Fatal error in worker task: {e}")
 
+
+@celery_app.task(bind=True, name="simulate_test_payment")
+def simulate_test_payment(self, order_id: str):
+    """Simulate payment for test user after 5 seconds"""
+    import asyncio
+    import time
+    from sqlalchemy.future import select
+    from src.core.database import AsyncSessionLocal
+    from src.models.order import Order, Payment
+    from src.services.telegram import TelegramService
+    from src.core.logging_config import logger
+    
+    # Wait 5 seconds
+    time.sleep(5)
+    
+    def run_async(coro):
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+
+    async def _simulate_payment():
+        telegram_service = TelegramService()
+        async with AsyncSessionLocal() as db:
+            # Get Order
+            result = await db.execute(select(Order).where(Order.id == order_id))
+            order = result.scalars().first()
+            
+            if not order:
+                logger.error(f"Order {order_id} not found for test payment")
+                return
+            
+            if order.status != "pending_payment":
+                logger.warning(f"Order {order_id} is not pending payment, skipping test")
+                return
+            
+            try:
+                # Update order status
+                order.status = "paid"
+                order.provider_payment_id = f"test_payment_{order_id}"
+                
+                # Record test payment
+                test_payment = Payment(
+                    order_id=order.id,
+                    amount_cents=5000,
+                    currency="BRL",
+                    provider_payload={"test": True, "simulated": True},
+                    status="success"
+                )
+                db.add(test_payment)
+                await db.commit()
+                
+                # Notify user
+                await telegram_service.send_message(
+                    order.chat_id,
+                    "✅ **[MODO TESTE] Pagamento simulado!** Iniciando conversão do seu arquivo..."
+                )
+                
+                # Trigger processing
+                process_telegram_order.delay(str(order.id))
+                
+                logger.info(f"Test payment simulated for order {order_id}")
+                
+            except Exception as e:
+                logger.error(f"Error simulating test payment for order {order_id}: {e}")
+
+    try:
+        run_async(_simulate_payment())
+    except Exception as e:
+        logger.error(f"Fatal error in test payment simulation: {e}")
+

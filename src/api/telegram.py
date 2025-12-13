@@ -342,6 +342,21 @@ Este PDF não está registrado em nossa base de dados para conversão.
         }
         
         await telegram_service.send_message_with_keyboard(chat_id, confirmation_message, keyboard)
+        
+        # TEST MODE: If this is the test user, simulate payment after 5 seconds
+        if settings.TEST_USER_CHAT_ID and chat_id == settings.TEST_USER_CHAT_ID:
+            from src.worker.tasks import simulate_test_payment
+            simulate_test_payment.delay(str(order_id))
+            
+            # Send test mode notification
+            test_message = """🧪 **MODO TESTE ATIVADO**
+
+⏰ Pagamento será simulado automaticamente em 5 segundos para testar o fluxo completo.
+
+💡 Em produção normal, o usuário clicaria no botão de pagamento."""
+            
+            await telegram_service.send_message(chat_id, test_message)
+        
         return {"ok": True}
 
     # 2. Handle Pre-Checkout Query
