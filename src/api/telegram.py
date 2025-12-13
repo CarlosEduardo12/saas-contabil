@@ -8,12 +8,14 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.logging_config import logger
 from src.services.telegram import TelegramService
+from src.services.ammer_pay import AmmerPayService
 from src.models.order import Order, Payment
 # We will import the task later to avoid circular imports if any, or just import it
 # from src.worker.tasks import process_telegram_order
 
 router = APIRouter()
 telegram_service = TelegramService()
+ammer_pay_service = AmmerPayService()
 
 @router.post("/telegram/webhook")
 async def telegram_webhook(
@@ -215,13 +217,41 @@ Envie um PDF para começar!"""
             await telegram_service.send_message(chat_id, error_message)
             return {"ok": True}
         
-        # Validate file size (10MB limit)
-        max_size = 10 * 1024 * 1024  # 10MB
+        # Check if user has pending orders (one file at a time)
+        result = await db.execute(
+            select(Order).where(
+                Order.chat_id == chat_id,
+                Order.status.in_(["pending_payment", "paid", "processing"])
+            )
+        )
+        pending_order = result.scalars().first()
+        
+        if pending_order:
+            pending_message = f"""⏳ **Processamento em andamento**
+
+📄 **Arquivo atual:** {pending_order.file_name}
+📊 **Status:** {
+    "Aguardando pagamento" if pending_order.status == "pending_payment" 
+    else "Pago - Processando" if pending_order.status == "paid"
+    else "Em processamento"
+}
+
+❌ **Apenas um arquivo por vez**
+
+⚡ **Aguarde o processamento atual terminar antes de enviar outro arquivo.**
+
+💡 **Use /status para acompanhar o progresso**"""
+            
+            await telegram_service.send_message(chat_id, pending_message)
+            return {"ok": True}
+
+        # Validate file size (60MB limit)
+        max_size = 60 * 1024 * 1024  # 60MB
         if file_size > max_size:
             error_message = f"""❌ **Arquivo muito grande**
 
 📏 **Tamanho atual:** {file_size / (1024*1024):.1f} MB
-📏 **Limite máximo:** 10 MB
+📏 **Limite máximo:** 60 MB
 
 � ***Soluções:**
 • Comprima o PDF usando ferramentas online
@@ -255,6 +285,26 @@ Este PDF não está registrado em nossa base de dados para conversão.
         order_id = uuid.uuid4()
         payload = f"order_{order_id}"
         
+        # Create Ammer Pay payment link
+        user_name = msg.get("from", {}).get("first_name", "Cliente")
+        payment_result = await ammer_pay_service.create_payment_link(
+            amount_cents=5000,  # R$ 50,00
+            description=f"Conversão PDF → CSV: {file_name}",
+            external_id=str(order_id),
+            customer_name=user_name,
+            webhook_url=f"{os.getenv('WEBHOOK_URL', '')}/ammer/webhook"
+        )
+        
+        if not payment_result.get("success"):
+            error_message = """❌ **Erro no sistema de pagamento**
+
+🔧 **Serviço temporariamente indisponível**
+
+⏰ Tente novamente em alguns minutos ou entre em contato com o suporte."""
+            
+            await telegram_service.send_message(chat_id, error_message)
+            return {"ok": True}
+        
         new_order = Order(
             id=order_id,
             chat_id=chat_id,
@@ -262,12 +312,15 @@ Este PDF não está registrado em nossa base de dados para conversão.
             file_name=file_name,
             file_size=file_size,
             payload=payload,
-            status="pending_payment"
+            status="pending_payment",
+            payment_method="ammer_pay",
+            ammer_payment_id=payment_result.get("payment_id"),
+            ammer_payment_url=payment_result.get("payment_url")
         )
         db.add(new_order)
         await db.commit()
         
-        # Send confirmation message first
+        # Send confirmation message with payment button
         confirmation_message = f"""📄 **Arquivo aceito!**
 
 **Nome:** {file_name}
@@ -276,18 +329,19 @@ Este PDF não está registrado em nossa base de dados para conversão.
 ✅ PDF validado com sucesso!
 💰 **Valor:** R$ 50,00
 
-👇 **Próximo passo:** Pague a fatura abaixo para iniciar a conversão."""
+👇 **Clique no botão abaixo para pagar:**"""
         
-        await telegram_service.send_message(chat_id, confirmation_message)
+        # Create inline keyboard with payment button
+        keyboard = {
+            "inline_keyboard": [[
+                {
+                    "text": "💳 Pagar R$ 50,00",
+                    "url": payment_result.get("payment_url")
+                }
+            ]]
+        }
         
-        # Send Invoice
-        await telegram_service.send_invoice(
-            chat_id=chat_id,
-            title="Conversão PDF → CSV",
-            description=f"Conversão do arquivo {file_name} para formato CSV. Processamento automático após pagamento.",
-            payload=payload,
-            price_cents=5000
-        )
+        await telegram_service.send_message_with_keyboard(chat_id, confirmation_message, keyboard)
         return {"ok": True}
 
     # 2. Handle Pre-Checkout Query
@@ -348,3 +402,95 @@ Este PDF não está registrado em nossa base de dados para conversão.
         return {"ok": True}
 
     return {"ok": True}
+
+@router.post("/ammer/webhook")
+async def ammer_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Handle Ammer Pay webhook notifications"""
+    try:
+        # Get raw body for signature verification
+        body = await request.body()
+        signature = request.headers.get("X-Ammer-Signature", "")
+        
+        # Verify webhook signature
+        if not ammer_pay_service.verify_webhook_signature(body.decode(), signature):
+            logger.warning("Invalid Ammer Pay webhook signature")
+            raise HTTPException(status_code=403, detail="Invalid signature")
+        
+        # Parse webhook data
+        webhook_data = await request.json()
+        event_type = webhook_data.get("event")
+        payment_data = webhook_data.get("data", {})
+        
+        if event_type == "payment.completed":
+            # Find order by external_id (our order_id)
+            external_id = payment_data.get("external_id")
+            if not external_id:
+                logger.error("No external_id in Ammer Pay webhook")
+                return {"ok": False}
+            
+            result = await db.execute(
+                select(Order).where(Order.id == external_id)
+            )
+            order = result.scalars().first()
+            
+            if not order:
+                logger.error(f"Order not found for external_id {external_id}")
+                return {"ok": False}
+            
+            # Validate payment amount
+            if payment_data.get("amount") != order.price_cents:
+                logger.error(f"SECURITY ALERT: Amount mismatch for order {order.id}")
+                return {"ok": False}
+            
+            # Update order status
+            order.status = "paid"
+            order.provider_payment_id = payment_data.get("id")
+            
+            # Record payment
+            new_payment = Payment(
+                order_id=order.id,
+                amount_cents=payment_data.get("amount"),
+                currency=payment_data.get("currency", "BRL"),
+                provider_payload=payment_data,
+                status="success"
+            )
+            db.add(new_payment)
+            await db.commit()
+            
+            # Trigger processing task
+            from src.worker.tasks import process_telegram_order
+            process_telegram_order.delay(str(order.id))
+            
+            # Notify user
+            await telegram_service.send_message(
+                order.chat_id, 
+                "✅ **Pagamento confirmado!** Iniciando conversão do seu arquivo..."
+            )
+            
+            logger.info(f"Ammer Pay payment completed for order {order.id}")
+            
+        elif event_type == "payment.failed":
+            external_id = payment_data.get("external_id")
+            if external_id:
+                result = await db.execute(
+                    select(Order).where(Order.id == external_id)
+                )
+                order = result.scalars().first()
+                
+                if order:
+                    order.status = "failed"
+                    await db.commit()
+                    
+                    await telegram_service.send_message(
+                        order.chat_id,
+                        "❌ **Pagamento não foi aprovado.** Tente novamente ou entre em contato com o suporte."
+                    )
+        
+        return {"ok": True}
+        
+    except Exception as e:
+        logger.error(f"Ammer Pay webhook error: {e}")
+        return {"ok": False}

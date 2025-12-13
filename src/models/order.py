@@ -20,6 +20,11 @@ class Order(Base):
     status = Column(String(20), default='pending_payment')
     provider_payment_id = Column(Text)
     telegram_payment_id = Column(Text)
+    
+    # Ammer Pay fields
+    ammer_payment_id = Column(Text)
+    ammer_payment_url = Column(Text)
+    payment_method = Column(String(20), default='ammer_pay')  # 'telegram' or 'ammer_pay'
     pdf_path = Column(Text)
     csv_path = Column(Text)
     error = Column(Text)

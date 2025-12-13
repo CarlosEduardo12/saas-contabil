@@ -54,6 +54,23 @@ class TelegramService:
             logger.error(f"Failed to send message: {e}")
             return None
 
+    async def send_message_with_keyboard(self, chat_id: int, text: str, keyboard: dict, parse_mode: str = "Markdown"):
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+            "reply_markup": keyboard
+        }
+        try:
+            response = await self.client.post("/sendMessage", json=data)
+            response.raise_for_status()
+            logger.info(f"Message with keyboard sent to {chat_id}")
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to send message with keyboard: {e}")
+            return None
+
     async def get_file_path(self, file_id: str):
         try:
             response = await self.client.post("/getFile", json={"file_id": file_id})

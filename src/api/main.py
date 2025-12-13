@@ -127,7 +127,7 @@ async def convert_document(
     
     # SECURITY: Check file size
     if file.size and file.size > settings.MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE} bytes")
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE // (1024*1024)} MB")
     
     # SECURITY: Sanitize filename to prevent path traversal
     import re

@@ -16,7 +16,7 @@ class Settings:
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD")
     
     # SECURITY: File upload limits
-    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB default
+    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "62914560"))  # 60MB default
     ALLOWED_EXTENSIONS: set = {".pdf"}
     
     def validate(self):
@@ -31,6 +31,11 @@ class Settings:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_PROVIDER_TOKEN: str = os.getenv("TELEGRAM_PROVIDER_TOKEN", "")
     TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    
+    # Ammer Pay Integration
+    AMMER_PAY_API_KEY: str = os.getenv("AMMER_PAY_API_KEY", "")
+    AMMER_PAY_SECRET: str = os.getenv("AMMER_PAY_SECRET", "")
+    AMMER_PAY_WEBHOOK_SECRET: str = os.getenv("AMMER_PAY_WEBHOOK_SECRET", "")
 
 settings = Settings()
 

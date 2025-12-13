@@ -47,3 +47,10 @@ else
 fi
 
 echo "🎉 Deploy concluído!"
+
+echo ""
+echo "🔧 Próximos passos para Ammer Pay:"
+echo "1. Configure as credenciais do Ammer Pay no .env"
+echo "2. Execute a migração: python3 migration_ammer_pay.py"
+echo "3. Teste a integração: python3 test_ammer_pay.py"
+echo "4. Configure o webhook do Ammer Pay: http://localhost:8000/ammer/webhook"
