@@ -321,7 +321,20 @@ Este PDF não está registrado em nossa base de dados para conversão.
         await db.commit()
         
         # Send confirmation message with payment button
-        confirmation_message = f"""📄 **Arquivo aceito!**
+        if payment_result.get("test_mode") or payment_result.get("fallback"):
+            confirmation_message = f"""📄 **Arquivo aceito!**
+
+**Nome:** {file_name}
+**Tamanho:** {file_size / 1024:.1f} KB
+
+✅ PDF validado com sucesso!
+💰 **Valor:** R$ 50,00
+
+🧪 **MODO TESTE/DEMO** - Sistema de pagamento em configuração
+
+👇 **Botão de demonstração:**"""
+        else:
+            confirmation_message = f"""📄 **Arquivo aceito!**
 
 **Nome:** {file_name}
 **Tamanho:** {file_size / 1024:.1f} KB
@@ -335,7 +348,7 @@ Este PDF não está registrado em nossa base de dados para conversão.
         keyboard = {
             "inline_keyboard": [[
                 {
-                    "text": "💳 Pagar R$ 50,00",
+                    "text": "💳 Pagar R$ 50,00" if not (payment_result.get("test_mode") or payment_result.get("fallback")) else "🧪 Demo - Pagar R$ 50,00",
                     "url": payment_result.get("payment_url")
                 }
             ]]
